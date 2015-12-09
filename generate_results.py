@@ -1,6 +1,6 @@
-import numpy as np
-from scipy.stats import ttest_ind
-from scipy.special import stdtr
+from statistics import pstdev
+from scipy.stats import norm
+from random import randint
 
 # omg python pls
 from collections import namedtuple # for JS-like objects
@@ -33,6 +33,9 @@ with open("data/ensembl_mapping.tsv") as f:
                 geneMapping[split[3]] = geneLabel
 
 print("done creating ENSEMBL to gene name mapping")
+
+print()
+print("gene", "total rank difference", "std dev of total rank difference", "p-value")
 
 sampleArray = False
 with open("data/star.tsv") as starf, open("data/tophat.tsv") as tophatf:
@@ -76,14 +79,21 @@ with open("data/star.tsv") as starf, open("data/tophat.tsv") as tophatf:
                 # map from value to rank
                 samplesDict[element.sample][element.aligner] = index
 
-            totalRankDifference = 0
+            differences = []
             for sample in sampleArray:
                 dictEntry = samplesDict[sample]
-                totalRankDifference += dictEntry[1] - dictEntry[0]
+                differences.append(dictEntry[1] - dictEntry[0])
+            totalRankDifference = sum(differences)
 
-            print(geneLabel, totalRankDifference)
+            # "bootstrap" the distribution of the total rank difference
+            # NOTE: perhaps this can be computed, but I don't know how
+            totals = []
+            for i in range(1000):
+                # randomize "order" of samples and sum
+                arr = [diff * (randint(0, 1) * 2 - 1) for diff in differences]
+                totals.append(sum(arr))
 
-
-            # # use scipy.stats.ttest_ind.
-            # t, p = ttest_ind(star, tophat, equal_var=False)
-            # print(p)
+            # mean = 0
+            stdevOfTotals = pstdev(totals)
+            zScore = totalRankDifference / stdevOfTotals
+            print(geneLabel, totalRankDifference, stdevOfTotals, norm.pdf(zScore))
