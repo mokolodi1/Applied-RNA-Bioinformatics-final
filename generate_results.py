@@ -1,5 +1,7 @@
 from statistics import pstdev
 from scipy.stats import norm
+from scipy.stats import wilcoxon
+
 from random import randint
 
 # omg python pls
@@ -14,11 +16,12 @@ with open("data/interesting_genes.txt") as f:
         # remove trailing "\n"
         interestingGenes.append(line[:-1])
 
-print(interestingGenes)
+print("interestingGenes length: ", len(interestingGenes))
 
 # geneMapping should be a dictionary from ENSEMBL IDs to HUGO gene names
 geneMapping = {}
 headerLine = True
+multiplyBy = 319;
 with open("data/ensembl_mapping.tsv") as f:
     for line in f:
         line = line[:-1] # remove trailing "\n"
@@ -32,24 +35,37 @@ with open("data/ensembl_mapping.tsv") as f:
             if geneLabel in interestingGenes:
                 geneMapping[split[3]] = geneLabel
 
-print("done creating ENSEMBL to gene name mapping")
+print("geneMapping length: ", len(geneMapping))
 
 print()
-print("gene", "total rank difference", "std dev of total rank difference", "p-value")
+print("gene\taverage rank difference\tp-value")
 
+line = 0
+genesTested = 0
 sampleArray = False
 with open("data/star.tsv") as starf, open("data/tophat.tsv") as tophatf:
     for star, tophat in zip(starf, tophatf):
+        line += 1
+        # if line % 1000 == 0:
+        #     print("line ", line)
         if not sampleArray:
-            assert star == tophat
+
             # remove trailing "\n", remove first cell ("Gene ID")
-            sampleArray = star[:-1].split("\t")[1:]
+            starArray = star[:-1].split("\t")[1:]
+            tophatArray = star[:-1].split("\t")[1:]
+            for first, second in zip(starArray, tophatArray):
+                if first != second:
+                    print(starArray, tophatArray)
+            assert starArray == tophatArray
+
+            sampleArray = starArray
         else:
             star = star.strip().split("\t")
             tophat = tophat.strip().split("\t")
             assert star[0] == tophat[0]
 
             # "ENSG00000000003.10" ==> "ENSG00000000003"
+            ensembl = star[0]
             geneLabel = star[0].split(".")[0]
             if geneLabel not in geneMapping:
                 continue
@@ -72,8 +88,14 @@ with open("data/star.tsv") as starf, open("data/tophat.tsv") as tophatf:
             chartValues = sorted(chartValues, key=lambda element: element.value)
 
             # create a dictionary with sample as key
+            # lastValue = False
             samplesDict = {}
             for index, element in enumerate(chartValues):
+                # if lastValue:
+                #     if element.value == lastValue:
+                #         print(element.value, " duplicated")
+                # lastValue = element.value
+
                 if element.sample not in samplesDict:
                     samplesDict[element.sample] = [0, 0]
                 # map from value to rank
@@ -82,18 +104,14 @@ with open("data/star.tsv") as starf, open("data/tophat.tsv") as tophatf:
             differences = []
             for sample in sampleArray:
                 dictEntry = samplesDict[sample]
-                differences.append(dictEntry[1] - dictEntry[0])
+                diff = dictEntry[1] - dictEntry[0]
+                differences.append(diff)
             totalRankDifference = sum(differences)
 
-            # "bootstrap" the distribution of the total rank difference
-            # NOTE: perhaps this can be computed, but I don't know how
-            totals = []
-            for i in range(1000):
-                # randomize "order" of samples and sum
-                arr = [diff * (randint(0, 1) * 2 - 1) for diff in differences]
-                totals.append(sum(arr))
+            statistic, pvalue = wilcoxon(star, tophat)
+            print(ensembl, "\t", geneLabel, "\t", totalRankDifference / len(star), "\t", pvalue * multiplyBy)
 
-            # mean = 0
-            stdevOfTotals = pstdev(totals)
-            zScore = totalRankDifference / stdevOfTotals
-            print(geneLabel, totalRankDifference, stdevOfTotals, norm.pdf(zScore))
+            genesTested += 1
+
+assert multiplyBy == genesTested
+print("genes tested: ", genesTested)
